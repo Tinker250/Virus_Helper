@@ -10,6 +10,7 @@ from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
 import nlp
 import pickle
 from rouge_score import rouge_scorer
+from util import sentence_processor
 
 import pytorch_lightning as pl
 from pytorch_lightning.logging import TestTubeLogger
@@ -68,6 +69,11 @@ class Seq2SeqDataset(Dataset):
 
     def __getitem__(self, idx):
         entry = self.data[idx]
+        #计算dependency tree
+        # [label,context,response,tfidf_value]
+        sp = sentence_processor(entry[1])
+        sp.dependency_tree_build()
+
         input_ids = self.tokenizer.encode(entry[1], truncation=True, max_length=self.max_input_len)
         output_ids = self.tokenizer.encode(entry[2], truncation=True, max_length=self.max_output_len)
         if self.tokenizer.bos_token_id is None:  # pegasus
