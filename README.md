@@ -1,2 +1,3 @@
-# TF_IDF_attention
-Change longformer with TD_IDF attention
+#Genreative-based chatbot model
+
+Reponse generation dialogue system on SeConD data
