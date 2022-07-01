@@ -18,3 +18,5 @@ if encoder_padding_mask is not None:
 ```
 
 ## Use run_seq2seq.sh to start training
+create a floder as log
+bash run_seq2seq.sh >log/seq2seq_tf_idf_top100_*1.log 2>&1 &
