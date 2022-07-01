@@ -19,7 +19,7 @@ def load_data(file_path):
         data = pickle.loads(fin.read())
     return data
 
-def convert_single_sentence()
+# def convert_single_sentence()
 
 
 if __name__ == "__main__":

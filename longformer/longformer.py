@@ -149,8 +149,6 @@ class LongformerSelfAttention(nn.Module):
             key_padding_mask = attention_mask < 0
             extra_attention_mask = attention_mask > 0
             remove_from_windowed_attention_mask = attention_mask != 0
-            
-
 
             for k in range(0,bsz):
                 remove_from_windowed_attention_mask[k][0] = True
@@ -221,7 +219,7 @@ class LongformerSelfAttention(nn.Module):
             temp_k = temp_k.transpose(1,2)
             # infs = torch.full([4, 1024, 513], -float('inf')).to(temp_k.device)
             # temp_k = torch.where(temp_k==0,infs,temp_k)
-            temp_k = torch.multiply(temp_k,1)
+            temp_k = torch.multiply(temp_k,1) #TODO: TD, change the number to 0-1
             temp_k = torch.reshape(temp_k,(bsz,seq_len,1,513))
             if(j==0):
                 temp_attn = temp_k

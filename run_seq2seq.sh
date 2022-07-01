@@ -8,7 +8,7 @@ python seq2seq.py \
         --num_workers 24 \
         --attention_window 256 \
         --gpus 1 \
-        --batch_size 2 \
+        --batch_size 2 \ #TODO:change the size up to your GPU
         --grad_accum 2 \
         --epochs 10 \
         --version 0 \

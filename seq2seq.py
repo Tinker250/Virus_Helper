@@ -81,7 +81,7 @@ class Seq2SeqDataset(Dataset):
         tf_idf_mask = []
 
         for score in entry[3]:
-            if score > 0:
+            if score > 0: #TODO: TD, change the number to 0-1, 0.2=use top 80% words
                 tf_idf_mask.append(round(score,3))
             else:
                 tf_idf_mask.append(0.0)
@@ -400,7 +400,7 @@ class Seq2Seq(pl.LightningModule):
         parser.add_argument('--train_file')
         parser.add_argument('--dev_file')
         parser.add_argument('--test_file')
-        parser.add_argument("--save_prefix", type=str, default='test')
+        parser.add_argument("--save_prefix", type=str, default='pl-log')
         parser.add_argument("--batch_size", type=int, default=4, help="Batch size")
         parser.add_argument("--grad_accum", type=int, default=1, help="number of gradient accumulation steps")
         parser.add_argument("--gpus", type=int, default=1,
