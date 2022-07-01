@@ -7,7 +7,7 @@ Reponse generation dialogue system on SeConD data
 ```
 conda create -n Virus_Helper python=3.8
 conda activate Virus_Helper
-pip install -r requirements.txt
+pip install -r requirements_2.txt
 
 ```
 
