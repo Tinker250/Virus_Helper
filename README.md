@@ -16,7 +16,7 @@ if encoder_padding_mask is not None:
 ### Use run_seq2seq.sh to start training
 Use `conda activate Virus_Helper` to activate the enviroment
 
-create a floder as log run `bash run_seq2seq.sh >log/seq2seq_tf_idf_top100_*1.log 2>&1 &`
+Create a floder as log run `bash run_seq2seq.sh >log/seq2seq_tf_idf_top100_*1.log 2>&1 &`
 ### Change hyper-parameters
 Search `#TODO: TD` in `seq2seq.py` and `longformer/longformer.py` to modify the coefficient of attention weights
 Change other hypter-parameter in run_seq2seq.sh
