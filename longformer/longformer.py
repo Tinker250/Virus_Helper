@@ -89,6 +89,7 @@ class LongformerSelfAttention(nn.Module):
         self,
         hidden_states,
         attention_mask=None,
+        tf_idf=None,
         head_mask=None,
         encoder_hidden_states=None,
         encoder_attention_mask=None,
@@ -107,14 +108,15 @@ class LongformerSelfAttention(nn.Module):
         if attention_mask is not None:
             
             # print("*"*20)
-            # print(attention_mask.shape)
             # print("*"*20)
             # attention_mask = (1.0 - extended_attention_mask) * -10000.0
-            tf_idf = attention_mask[:,:,1,:]
-            tf_idf = torch.multiply(tf_idf,1/-10000)
-            tf_idf = torch.add(-tf_idf,1)
             
-            attention_mask = tf_idf = attention_mask[:,:,0,:].squeeze(dim=1)
+            tf_idf = attention_mask[:,1,:]
+            # tf_idf = torch.multiply(tf_idf,1/-10000)
+            # tf_idf = torch.add(-tf_idf,1)
+
+            attention_mask = attention_mask[:,0,:]
+            # print(attention_mask)
             
 
             hidden_states = hidden_states.transpose(0, 1)
@@ -126,6 +128,10 @@ class LongformerSelfAttention(nn.Module):
             #     for j in range(0,seq_len):
             #         if(tf_idf[i][j]==0.0):
             #             tf_idf[i][j] = 1.0
+            
+            # print(tf_idf[1][:15])
+            # print(attention_mask)
+            # print(kkk)
 
             expended_tfidf = None
             for i in range(0,bsz):
@@ -138,6 +144,8 @@ class LongformerSelfAttention(nn.Module):
                     temp = torch.reshape(temp,(1,seq_len,seq_len))
                     expended_tfidf = torch.cat((expended_tfidf,temp),dim=0)
             
+
+
             key_padding_mask = attention_mask < 0
             extra_attention_mask = attention_mask > 0
             remove_from_windowed_attention_mask = attention_mask != 0
@@ -201,6 +209,7 @@ class LongformerSelfAttention(nn.Module):
         
         
         # TODO:tf_idf
+        # print(attn_weights[0,:,0,:])
         temp_attn = None
         for j in range(0,12):
             temp_k = attn_weights[:,:,j,:].transpose(1,2)
@@ -212,13 +221,16 @@ class LongformerSelfAttention(nn.Module):
             temp_k = temp_k.transpose(1,2)
             # infs = torch.full([4, 1024, 513], -float('inf')).to(temp_k.device)
             # temp_k = torch.where(temp_k==0,infs,temp_k)
-            temp_k = torch.multiply(temp_k,0.2)
+            temp_k = torch.multiply(temp_k,1)
             temp_k = torch.reshape(temp_k,(bsz,seq_len,1,513))
             if(j==0):
                 temp_attn = temp_k
             else:
                 temp_attn = torch.cat((temp_attn,temp_k),dim=2)
         attn_weights = torch.add(attn_weights,temp_attn)
+        # print(expended_tfidf[0])
+        # print(attn_weights[0,:,0,:])
+        # print(kkk)
        
 
         mask_invalid_locations(attn_weights, self.attention_window, self.attention_dilation, False)

@@ -2,7 +2,7 @@ from pyparsing import NoMatch
 from sklearn.feature_extraction.text import TfidfVectorizer
 import pickle
 from tqdm import tqdm
-from transformers import RobertaTokenizer
+from transformers import AutoTokenizer
 import re
 import numpy as np
 from sklearn import preprocessing
@@ -11,12 +11,12 @@ englis_stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves"
 
 def TFIDF_Builder(filename,output_filename):
   print("begin TFIDF from file -> {}, output file -> {}".format("SeConD_data/"+filename+".pickle", output_filename))
-  tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+  tokenizer = AutoTokenizer.from_pretrained("facebook/bart-base")
   data = None
   with open("SeConD_data/"+filename+".pickle",'rb') as fin:
         data = pickle.load(fin)
   temp = []
-  data = data[80000:]
+  # data = data[80000:]
   for i,example in tqdm(enumerate(data), total=len(data)):
     # if(i % 10000 == 0):
     #   print(i/len(data))
@@ -26,19 +26,23 @@ def TFIDF_Builder(filename,output_filename):
       print(text_a)
       print(kkk)
       continue
-    tokens_a = tokenizer.tokenize(re.sub('\n','</s> ',text_a),add_prefix_space=True)
-    tokens_b = tokenizer.tokenize(re.sub('\n','</s> ',text_b),add_prefix_space=True)
+    tokens_a = tokenizer.tokenize(text_a)
+    tokens_b = tokenizer.tokenize(text_b)
     # all_tokens = [tokenizer.cls_token_id]+tokens_a+[tokenizer.sep_token]+tokens_b+[tokenizer.sep_token]
     text_a = " ".join(x for x in tokens_a)
     text_b = " ".join(x for x in tokens_b)
-    f_text = "[CLS] " +text_a+" [SEP] "+text_b+" [SEP]"
+    #context-response pair
+    # f_text = "<s> " +text_a+" </s> "+text_b+" </s>"
+
+    #only encoder
+    f_text = "<s> " +text_a+" </s>"
     f_text = re.sub('  ',' ',f_text)
     f_text = re.sub('   ',' ',f_text)
     temp.append(f_text)
 
   # print(temp)
   assert len(data) == len(temp)
-  vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w\w+\b|!|\?|\"|\'|\.|\@|\#|\$|\,|\%",min_df=0,lowercase=False)
+  vectorizer = TfidfVectorizer(token_pattern=r"(?u)\b\w\w+\b|!|\?|\"|\'|\.|\@|\#|\$|\,|\%|\[|\]",min_df=0,lowercase=False)
   scores = vectorizer.fit_transform(temp)
   features = vectorizer.get_feature_names()
   scores = scores.toarray()
@@ -70,9 +74,12 @@ def TFIDF_Builder(filename,output_filename):
     scaler = preprocessing.MinMaxScaler()
     normalizedlist=scaler.fit_transform(mat)
     normalizedlist = normalizedlist.tolist()
-    
-    item.append([x[0] for x in normalizedlist]) #TODO:改这里就行
-    output.append(item)
+    item_2 = []
+    item_2.append(item[0])
+    item_2.append(item[1])
+    item_2.append(item[2])
+    item_2.append([x[0] for x in normalizedlist]) #TODO:改这里就行
+    output.append(item_2)
   print("len is {}".format(len(output)))
   with open('SeConD_data/'+output_filename+'.pickle','wb') as f1:
     pickle.dump(output,f1)
@@ -119,6 +126,6 @@ def test():
       print(token, test_list[i])
 
 # merge()
-# TFIDF_Builder('train','train_tfidf_p2')
-merge()
+# TFIDF_Builder('test_tfidf_seq2seq_v2','test_tfidf_seq2seq_v2')
+# merge()
 # test()

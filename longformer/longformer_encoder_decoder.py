@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple, Dict
 from torch import nn, Tensor
+import torch
 from longformer.longformer import LongformerSelfAttention
 from transformers.modeling_bart import BartConfig, BartForConditionalGeneration
 
@@ -55,15 +56,21 @@ class LongformerSelfAttentionForBart(nn.Module):
         attn_mask: Optional[Tensor] = None,
         need_weights=False,
         output_attentions=False,
+        **unused
     ) -> Tuple[Tensor, Optional[Tensor]]:
         tgt_len, bsz, embed_dim = query.size()
         assert embed_dim == self.embed_dim
         assert list(query.size()) == [tgt_len, bsz, embed_dim]
         assert attn_mask is None
 
+        # reverse tfidf
+        # key_padding_mask[:,1,:] = torch.add(1,-key_padding_mask[:,1,:])
+        # key_padding_mask[:,0,:] = torch.mul(key_padding_mask[:,0,:],-1)
+        # print("in encoder")
         outputs = self.longformer_self_attn(
             query.transpose(0, 1),  # LongformerSelfAttention expects (bsz, seqlen, embd_dim)
-            attention_mask=key_padding_mask.unsqueeze(dim=1).unsqueeze(dim=1) * -1,
+            # attention_mask=key_padding_mask.unsqueeze(dim=1).unsqueeze(dim=1) * -1,
+            attention_mask=key_padding_mask,
             head_mask=None,
             encoder_hidden_states=None,
             encoder_attention_mask=None,

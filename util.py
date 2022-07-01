@@ -3,6 +3,7 @@ import nltk
 from nltk.grammar import DependencyGrammar
 from nltk.parse import DependencyGraph, ProjectiveDependencyParser, NonprojectiveDependencyParser
 from nltk.parse.corenlp import CoreNLPDependencyParser
+import pickle
 
 class sentence_processor():
     def __init__(self,text_sentence):
@@ -11,6 +12,15 @@ class sentence_processor():
         print(self.sentence)
         parser = CoreNLPDependencyParser(url='http://localhost:9000')
         return parser.raw_parse(self.sentence)
+
+
+def load_data(file_path):
+    with open(file_path,'rb') as fin:
+        data = pickle.loads(fin.read())
+    return data
+
+def convert_single_sentence()
+
 
 if __name__ == "__main__":
     test = sentence_processor("The quick brown fox jumps over the lazy dog.")

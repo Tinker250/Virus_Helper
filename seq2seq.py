@@ -2,6 +2,7 @@ import os
 import argparse
 import random
 import numpy as np
+from TFIDF import TFIDF_Builder
 
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -21,7 +22,7 @@ from pytorch_lightning.overrides.data_parallel import LightningDistributedDataPa
 from longformer import LongformerEncoderDecoderForConditionalGeneration, LongformerEncoderDecoderConfig
 from longformer.sliding_chunks import pad_to_window_size
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
     """From fairseq"""
@@ -71,14 +72,41 @@ class Seq2SeqDataset(Dataset):
         entry = self.data[idx]
         #计算dependency tree
         # [label,context,response,tfidf_value]
-        sp = sentence_processor(entry[1])
-        sp.dependency_tree_build()
+        # def tok(s):
+        #     return self.tokenizer.tokenize(s)
+        # tokens = [self.tokenizer.cls_token] + tok(entry[1]) + [self.tokenizer.sep_token]
+        # print(tokens)
+        input_ids = self.tokenizer.encode(entry[1])
 
-        input_ids = self.tokenizer.encode(entry[1], truncation=True, max_length=self.max_input_len)
+        tf_idf_mask = []
+
+        for score in entry[3]:
+            if score > 0:
+                tf_idf_mask.append(round(score,3))
+            else:
+                tf_idf_mask.append(0.0)
+
+        if(len(input_ids)>self.max_input_len):
+            first = input_ids[0]
+            first_mask = tf_idf_mask[0]
+            input_ids = input_ids[-self.max_input_len+1:]
+            input_ids.insert(0,first)
+
+            tf_idf_mask = tf_idf_mask[-self.max_input_len+1:]
+            tf_idf_mask.insert(0,first_mask)
+
+        input_len = len(input_ids)
+
+        padding_length = self.max_input_len - input_len
+        tf_idf_mask = tf_idf_mask + ([0.0] * padding_length)
+        input_ids = input_ids + ([self.tokenizer.pad_token_id] * padding_length)
+        
         output_ids = self.tokenizer.encode(entry[2], truncation=True, max_length=self.max_output_len)
+        
+
         if self.tokenizer.bos_token_id is None:  # pegasus
             output_ids = [self.tokenizer.pad_token_id] + output_ids
-        return torch.tensor(input_ids), torch.tensor(output_ids)
+        return torch.tensor(input_ids), torch.tensor(output_ids), torch.tensor(tf_idf_mask)
 
     @staticmethod
     def collate_fn(batch):
@@ -90,10 +118,14 @@ class Seq2SeqDataset(Dataset):
         else:
             assert False
 
-        input_ids, output_ids = list(zip(*batch))
-        input_ids = torch.nn.utils.rnn.pad_sequence(input_ids, batch_first=True, padding_value=pad_token_id)
-        output_ids = torch.nn.utils.rnn.pad_sequence(output_ids, batch_first=True, padding_value=pad_token_id)
-        return input_ids, output_ids
+        input_ids, output_ids, tf_idf = zip(*batch)
+    
+        input_ids = torch.nn.utils.rnn.pad_sequence(list(input_ids), batch_first=True, padding_value=pad_token_id)
+       
+        output_ids = torch.nn.utils.rnn.pad_sequence(list(output_ids), batch_first=True, padding_value=pad_token_id)
+        tf_idf = torch.nn.utils.rnn.pad_sequence(list(tf_idf), batch_first=True, padding_value=pad_token_id)
+        
+        return input_ids, output_ids, tf_idf
 
 
 class Seq2Seq(pl.LightningModule):
@@ -136,18 +168,27 @@ class Seq2Seq(pl.LightningModule):
                 input_ids, attention_mask, half_padding_mod, self.tokenizer.pad_token_id)
         return input_ids, attention_mask
 
-    def forward(self, input_ids, output_ids):
+    def forward(self, input_ids, output_ids, tf_idf):
         input_ids, attention_mask = self._prepare_input(input_ids)
+        attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
+        # print(attention_mask.shape)
+        tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+        # print(tf_idf.shape)
+        mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
+        
         decoder_input_ids = output_ids[:, :-1]
         decoder_attention_mask = (decoder_input_ids != self.tokenizer.pad_token_id)
         labels = output_ids[:, 1:].clone()
+        # print(self.model)
         outputs = self.model(
                 input_ids,
-                attention_mask=attention_mask,
+                attention_mask=mix_tensor,
                 decoder_input_ids=decoder_input_ids,
                 decoder_attention_mask=decoder_attention_mask,
-                use_cache=False,)
+                use_cache=False)
         lm_logits = outputs[0]
+        # print(outputs)
+        # print(kkk)
         if self.args.label_smoothing == 0:
             # Same behavior as modeling_bart.py, besides ignoring pad_token_id
             ce_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
@@ -173,15 +214,22 @@ class Seq2Seq(pl.LightningModule):
     def validation_step(self, batch, batch_nb):
         for p in self.model.parameters():
             p.requires_grad = False
-
+        
         outputs = self.forward(*batch)
         vloss = outputs[0]
-        input_ids, output_ids = batch
+        # print(outputs)
+
+        input_ids, output_ids,tf_idf = batch
         input_ids, attention_mask = self._prepare_input(input_ids)
-        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=attention_mask,
+        attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
+        tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+        mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
+
+        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=mix_tensor,
                                             use_cache=True, max_length=self.args.max_output_len,
                                             num_beams=1)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
+        # generated_str = ""
         gold_str = self.tokenizer.batch_decode(output_ids.tolist(), skip_special_tokens=True)
         scorer = rouge_scorer.RougeScorer(rouge_types=['rouge1', 'rouge2', 'rougeL', 'rougeLsum'], use_stemmer=False)
         rouge1 = rouge2 = rougel = rougelsum = 0.0
@@ -210,8 +258,8 @@ class Seq2Seq(pl.LightningModule):
         
             padding_length = self.args.max_input_len - len(input_ids)
             input_ids = input_ids + ([self.tokenizer.pad_token_id] * padding_length)
-            print(input_ids)
-            print(kkk)
+            # print(input_ids)
+            # print(kkk)
 
     def validation_epoch_end(self, outputs):
         for p in self.model.parameters():
@@ -226,11 +274,11 @@ class Seq2Seq(pl.LightningModule):
                 metric /= self.trainer.world_size
             metrics.append(metric)
         logs = dict(zip(*[names, metrics]))
-        print(logs)
+        # print(logs)
         return {'avg_val_loss': logs['vloss'], 'log': logs, 'progress_bar': logs}
 
     def test_step(self, batch, batch_nb):
-        print(self.args)
+        # print(self.args)
         if(self.args.interact):
             history = ""
             while True:
@@ -267,7 +315,7 @@ class Seq2Seq(pl.LightningModule):
 
         output_strs = []
         for ref, pred in zip(gold_str, generated_str):
-            print(len(ref))
+            # print(len(ref))
             output_strs.append([ref,pred])
             score = scorer.score(ref, pred)
             rouge1 += score['rouge1'].fmeasure
@@ -384,6 +432,7 @@ class Seq2Seq(pl.LightningModule):
         parser.add_argument("--attention_dropout", type=float, default=0.1, help="attention dropout")
         parser.add_argument("--attention_mode", type=str, default='sliding_chunks', help="Longformer attention mode")
         parser.add_argument("--attention_window", type=int, default=512, help="Attention window")
+        parser.add_argument("--version", type=int, default=0, help="Attention window")
         parser.add_argument("--label_smoothing", type=float, default=0.0, required=False)
         parser.add_argument("--adafactor", action='store_true', help="Use adafactor optimizer")
         parser.add_argument('--is_small', default=False, action='store_true')
@@ -409,11 +458,12 @@ def main(args):
     logger = TestTubeLogger(
         save_dir=args.save_dir,
         name=args.save_prefix,
-        version=0  # always use version=0
+        version=args.version
     )
 
+    filepath = f'{args.save_dir}/version_{logger.version}/checkpoints/'
     checkpoint_callback = ModelCheckpoint(
-        filepath=os.path.join(args.save_dir, args.save_prefix, "checkpoints"),
+        filepath=filepath,
         save_top_k=5,
         verbose=True,
         monitor='avg_val_loss',
