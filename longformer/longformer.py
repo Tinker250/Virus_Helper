@@ -111,12 +111,12 @@ class LongformerSelfAttention(nn.Module):
             # print("*"*20)
             # attention_mask = (1.0 - extended_attention_mask) * -10000.0
             
-            tf_idf = attention_mask[:,1,:]
-            # tf_idf = torch.multiply(tf_idf,1/-10000)
-            # tf_idf = torch.add(-tf_idf,1)
-
-            attention_mask = attention_mask[:,0,:]
-            # print(attention_mask)
+            #TODO:tfidf
+            tf_idf = None
+            if(attention_mask.dim()!=2):
+                tf_idf = 1-attention_mask[:,1,:]
+                attention_mask = attention_mask[:,0,:]
+        
             
 
             hidden_states = hidden_states.transpose(0, 1)
@@ -134,15 +134,16 @@ class LongformerSelfAttention(nn.Module):
             # print(kkk)
 
             expended_tfidf = None
-            for i in range(0,bsz):
-                if(i == 0):
-                    temp = torch.diag(tf_idf[i])
-                    expended_tfidf = torch.reshape(temp,(1,seq_len,seq_len))
-                    # print(expended_tfidf.shape)
-                else:
-                    temp = torch.diag(tf_idf[i])
-                    temp = torch.reshape(temp,(1,seq_len,seq_len))
-                    expended_tfidf = torch.cat((expended_tfidf,temp),dim=0)
+            if(tf_idf != None):
+                for i in range(0,bsz):
+                    if(i == 0):
+                        temp = torch.diag(tf_idf[i])
+                        expended_tfidf = torch.reshape(temp,(1,seq_len,seq_len))
+                        # print(expended_tfidf.shape)
+                    else:
+                        temp = torch.diag(tf_idf[i])
+                        temp = torch.reshape(temp,(1,seq_len,seq_len))
+                        expended_tfidf = torch.cat((expended_tfidf,temp),dim=0)
             
 
 
@@ -207,28 +208,25 @@ class LongformerSelfAttention(nn.Module):
         
         
         # TODO:tf_idf
-        # print(attn_weights[0,:,0,:])
-        temp_attn = None
-        for j in range(0,12):
-            temp_k = attn_weights[:,:,j,:].transpose(1,2)
-            zero = torch.zeros_like(temp_k)
-            temp_k = torch.where(temp_k==-float('inf'),zero,temp_k)
+        if(expended_tfidf != None):
+            temp_attn = None
+            for j in range(0,12):
+                temp_k = attn_weights[:,:,j,:].transpose(1,2)
+                zero = torch.zeros_like(temp_k)
+                temp_k = torch.where(temp_k==-float('inf'),zero,temp_k)
             
-            temp_k = torch.matmul(temp_k,expended_tfidf)
+                temp_k = torch.matmul(temp_k,expended_tfidf)
             
-            temp_k = temp_k.transpose(1,2)
-            # infs = torch.full([4, 1024, 513], -float('inf')).to(temp_k.device)
-            # temp_k = torch.where(temp_k==0,infs,temp_k)
-            temp_k = torch.multiply(temp_k,1) #TODO: TD, change the number to 0-1
-            temp_k = torch.reshape(temp_k,(bsz,seq_len,1,513))
-            if(j==0):
-                temp_attn = temp_k
-            else:
-                temp_attn = torch.cat((temp_attn,temp_k),dim=2)
-        attn_weights = torch.add(attn_weights,temp_attn)
-        # print(expended_tfidf[0])
-        # print(attn_weights[0,:,0,:])
-        # print(kkk)
+                temp_k = temp_k.transpose(1,2)
+                # infs = torch.full([4, 1024, 513], -float('inf')).to(temp_k.device)
+                # temp_k = torch.where(temp_k==0,infs,temp_k)
+                temp_k = torch.multiply(temp_k,0.1) #TODO: TD, change the number to 0-1
+                temp_k = torch.reshape(temp_k,(bsz,seq_len,1,attn_weights.shape[3]))
+                if(j==0):
+                    temp_attn = temp_k
+                else:
+                    temp_attn = torch.cat((temp_attn,temp_k),dim=2)
+            attn_weights = torch.add(attn_weights,temp_attn)  
        
 
         mask_invalid_locations(attn_weights, self.attention_window, self.attention_dilation, False)

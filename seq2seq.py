@@ -17,6 +17,7 @@ import pytorch_lightning as pl
 from pytorch_lightning.logging import TestTubeLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
+from nltk.translate.bleu_score import sentence_bleu 
 
 
 from longformer import LongformerEncoderDecoderForConditionalGeneration, LongformerEncoderDecoderConfig
@@ -75,13 +76,12 @@ class Seq2SeqDataset(Dataset):
         # def tok(s):
         #     return self.tokenizer.tokenize(s)
         # tokens = [self.tokenizer.cls_token] + tok(entry[1]) + [self.tokenizer.sep_token]
-        # print(tokens)
         input_ids = self.tokenizer.encode(entry[1])
 
         tf_idf_mask = []
 
         for score in entry[3]:
-            if score > 0: #TODO: TD, change the number to 0-1, 0.2=use top 80% words
+            if score > 0.8: #TODO: TD, change the number to 0-1, 0.2=use top 80% words
                 tf_idf_mask.append(round(score,3))
             else:
                 tf_idf_mask.append(0.0)
@@ -124,6 +124,7 @@ class Seq2SeqDataset(Dataset):
        
         output_ids = torch.nn.utils.rnn.pad_sequence(list(output_ids), batch_first=True, padding_value=pad_token_id)
         tf_idf = torch.nn.utils.rnn.pad_sequence(list(tf_idf), batch_first=True, padding_value=pad_token_id)
+        # print(input_ids.shape)
         
         return input_ids, output_ids, tf_idf
 
@@ -170,11 +171,12 @@ class Seq2Seq(pl.LightningModule):
 
     def forward(self, input_ids, output_ids, tf_idf):
         input_ids, attention_mask = self._prepare_input(input_ids)
-        attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
-        # print(attention_mask.shape)
-        tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
-        # print(tf_idf.shape)
-        mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
+        if(self.args.use_tfidf):
+            attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
+            # print(attention_mask.shape)
+            tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+            # print(tf_idf.shape)
+            mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
         
         decoder_input_ids = output_ids[:, :-1]
         decoder_attention_mask = (decoder_input_ids != self.tokenizer.pad_token_id)
@@ -182,7 +184,7 @@ class Seq2Seq(pl.LightningModule):
         # print(self.model)
         outputs = self.model(
                 input_ids,
-                attention_mask=mix_tensor,
+                attention_mask=mix_tensor if self.args.use_tfidf else attention_mask, #TODO: mix_tensor=using TFIDF attention_mask = not using
                 decoder_input_ids=decoder_input_ids,
                 decoder_attention_mask=decoder_attention_mask,
                 use_cache=False)
@@ -221,11 +223,13 @@ class Seq2Seq(pl.LightningModule):
 
         input_ids, output_ids,tf_idf = batch
         input_ids, attention_mask = self._prepare_input(input_ids)
-        attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
-        tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
-        mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
+        
+        if(self.args.use_tfidf):
+            attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
+            tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+            mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
 
-        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=mix_tensor,
+        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=mix_tensor if self.args.use_tfidf else attention_mask,#TODO: mix_tensor=using TFIDF attention_mask = not using
                                             use_cache=True, max_length=self.args.max_output_len,
                                             num_beams=1)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
@@ -274,11 +278,11 @@ class Seq2Seq(pl.LightningModule):
                 metric /= self.trainer.world_size
             metrics.append(metric)
         logs = dict(zip(*[names, metrics]))
-        # print(logs)
+        
         return {'avg_val_loss': logs['vloss'], 'log': logs, 'progress_bar': logs}
 
     def test_step(self, batch, batch_nb):
-        # print(self.args)
+        
         if(self.args.interact):
             history = ""
             while True:
@@ -290,6 +294,12 @@ class Seq2Seq(pl.LightningModule):
                 input_ids = torch.tensor(input_ids)
                 input_ids = torch.reshape(input_ids,(1,self.args.max_input_len)).to(batch[0].device)
                 input_ids, attention_mask = self._prepare_input(input_ids)
+                if(self.args.use_tfidf):
+                    attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
+                    tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+                    mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
+                # tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+                # mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
                 generated_ids = self.model.generate(input_ids=input_ids, attention_mask=attention_mask,
                                             use_cache=True, max_length=self.args.max_output_len,
                                             num_beams=1)
@@ -303,9 +313,14 @@ class Seq2Seq(pl.LightningModule):
 
         outputs = self.forward(*batch)
         vloss = outputs[0]
-        input_ids, output_ids = batch
+        input_ids, output_ids,tf_idf = batch
         input_ids, attention_mask = self._prepare_input(input_ids)
-        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=attention_mask,
+        if(self.args.use_tfidf):
+            attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
+            tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
+            mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
+
+        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=mix_tensor if self.args.use_tfidf else attention_mask, #TODO: TFIDF
                                             use_cache=True, max_length=self.args.max_output_len,
                                             num_beams=1)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
@@ -432,10 +447,11 @@ class Seq2Seq(pl.LightningModule):
         parser.add_argument("--attention_dropout", type=float, default=0.1, help="attention dropout")
         parser.add_argument("--attention_mode", type=str, default='sliding_chunks', help="Longformer attention mode")
         parser.add_argument("--attention_window", type=int, default=512, help="Attention window")
-        parser.add_argument("--version", type=int, default=0, help="Attention window")
+        parser.add_argument("--version", type=str, default='0', help="Version")
         parser.add_argument("--label_smoothing", type=float, default=0.0, required=False)
         parser.add_argument("--adafactor", action='store_true', help="Use adafactor optimizer")
         parser.add_argument('--is_small', default=False, action='store_true')
+        parser.add_argument('--use_tfidf', default=False, action='store_true')
         
 
         return parser

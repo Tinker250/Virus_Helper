@@ -10,10 +10,10 @@ from sklearn import preprocessing
 englis_stop_words = ["i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and", "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between", "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off", "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now"]
 
 def TFIDF_Builder(filename,output_filename):
-  print("begin TFIDF from file -> {}, output file -> {}".format("SeConD_data/"+filename+".pickle", output_filename))
+  print("begin TFIDF from file -> {}, output file -> {}".format(filename, output_filename))
   tokenizer = AutoTokenizer.from_pretrained("facebook/bart-base")
   data = None
-  with open("SeConD_data/"+filename+".pickle",'rb') as fin:
+  with open(filename,'rb') as fin:
         data = pickle.load(fin)
   temp = []
   # data = data[80000:]
@@ -81,7 +81,7 @@ def TFIDF_Builder(filename,output_filename):
     item_2.append([x[0] for x in normalizedlist]) #TODO:改这里就行
     output.append(item_2)
   print("len is {}".format(len(output)))
-  with open('SeConD_data/'+output_filename+'.pickle','wb') as f1:
+  with open(output_filename,'wb') as f1:
     pickle.dump(output,f1)
 
   print("End TFIDF")
@@ -118,14 +118,13 @@ test_list = [0, 'ĠElise', '025', 'Ġand', 'ĠFab', 'ar', 'Ġwere', 'Ġable', '�
 
 
 def test():
-  print(len(test_list))
-  print(len(test_str))
-  # test_split = test_str.split(' ')
-  for i, token in enumerate(test_str):
-    if(token != test_list[i]):
-      print(token, test_list[i])
+  with open("DSTC7_AVSD/DSTC7_dev_full_tfidf.pickle",'rb') as f2:
+    data = pickle.loads(f2.read())
+    print(data[123])
 
 # merge()
-# TFIDF_Builder('test_tfidf_seq2seq_v2','test_tfidf_seq2seq_v2')
+# TFIDF_Builder('DSTC7_AVSD/DSTC7_train_full.pickle','DSTC7_AVSD/DSTC7_train_full_tfidf.pickle')
+# TFIDF_Builder('DSTC7_AVSD/DSTC7_dev_full.pickle','DSTC7_AVSD/DSTC7_dev_full_tfidf.pickle')
+# TFIDF_Builder('DSTC7_AVSD/DSTC7_test_full.pickle','DSTC7_AVSD/DSTC7_test_full_tfidf.pickle')
 # merge()
 # test()
