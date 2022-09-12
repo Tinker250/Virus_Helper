@@ -123,8 +123,8 @@ def test():
     print(data[123])
 
 # merge()
-# TFIDF_Builder('DSTC7_AVSD/DSTC7_train_full.pickle','DSTC7_AVSD/DSTC7_train_full_tfidf.pickle')
-# TFIDF_Builder('DSTC7_AVSD/DSTC7_dev_full.pickle','DSTC7_AVSD/DSTC7_dev_full_tfidf.pickle')
-# TFIDF_Builder('DSTC7_AVSD/DSTC7_test_full.pickle','DSTC7_AVSD/DSTC7_test_full_tfidf.pickle')
+# TFIDF_Builder('SeConD_data/train_tfidf_v3.pickle','SeConD_data/train_tfidf_v4.pickle')
+# TFIDF_Builder('SeConD_data/dev.pickle','SeConD_data/dev_full_tfidf.pickle')
+# TFIDF_Builder('SeConD_data/test.pickle','SeConD_data/test_full_tfidf.pickle')
 # merge()
 # test()

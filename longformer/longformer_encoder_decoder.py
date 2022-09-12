@@ -51,6 +51,7 @@ class LongformerSelfAttentionForBart(nn.Module):
         self,
         query,
         key: Optional[Tensor],
+        dt=None,
         key_padding_mask: Optional[Tensor] = None,
         layer_state: Optional[Dict[str, Optional[Tensor]]] = None,
         attn_mask: Optional[Tensor] = None,
@@ -66,11 +67,11 @@ class LongformerSelfAttentionForBart(nn.Module):
         # reverse tfidf
         # key_padding_mask[:,1,:] = torch.add(1,-key_padding_mask[:,1,:])
         # key_padding_mask[:,0,:] = torch.mul(key_padding_mask[:,0,:],-1)
-        # print("in encoder")
         outputs = self.longformer_self_attn(
             query.transpose(0, 1),  # LongformerSelfAttention expects (bsz, seqlen, embd_dim)
             # attention_mask=key_padding_mask.unsqueeze(dim=1).unsqueeze(dim=1) * -1,
             attention_mask=key_padding_mask,
+            dt=dt,
             head_mask=None,
             encoder_hidden_states=None,
             encoder_attention_mask=None,

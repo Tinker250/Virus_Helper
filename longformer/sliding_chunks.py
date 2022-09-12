@@ -27,7 +27,6 @@ def _chunk(x, w):
 
     # non-overlapping chunks of size = 2w
     x = x.view(x.size(0), x.size(1) // (w * 2), w * 2, x.size(2))
-
     # use `as_strided` to make the chunks overlap with an overlap size = w
     chunk_size = list(x.size())
     chunk_size[1] = chunk_size[1] * 2 - 1
@@ -46,6 +45,7 @@ def sliding_chunks_matmul_qk(q: torch.Tensor, k: torch.Tensor, w: int, padding_v
     assert q.size() == k.size()
 
     chunks_count = seqlen // w - 1
+    
 
     # group bsz and num_heads dimensions into one, then chunk seqlen into chunks of size w * 2
     q = q.transpose(1, 2).reshape(bsz * num_heads, seqlen, head_dim)
@@ -59,17 +59,18 @@ def sliding_chunks_matmul_qk(q: torch.Tensor, k: torch.Tensor, w: int, padding_v
     # bcyd: bsz*num_heads x chunks x 2w x head_dim
     # bcxy: bsz*num_heads x chunks x 2w x 2w
     chunk_attn = torch.einsum('bcxd,bcyd->bcxy', (chunk_q, chunk_k))  # multiply
-
+    # print("chunk_attn",chunk_attn.shape)
     # convert diagonals into columns
-    diagonal_chunk_attn = _skew(chunk_attn, direction=(0, 0, 0, 1), padding_value=padding_value)
-
+    diagonal_chunk_attn = _skew(chunk_attn, direction=(0, 0, 0, 1), padding_value=padding_value) 
+    # print("diagonal_chunk_attn",diagonal_chunk_attn.shape)
     # allocate space for the overall attention matrix where the chunks are compined. The last dimension
     # has (w * 2 + 1) columns. The first (w) columns are the w lower triangles (attention from a word to
     # w previous words). The following column is attention score from each word to itself, then
     # followed by w columns for the upper triangle.
 
     diagonal_attn = diagonal_chunk_attn.new_empty((bsz * num_heads, chunks_count + 1, w, w * 2 + 1))
-
+    # print("diagonal_attn",diagonal_attn.shape)
+    # print(kkk)
     # copy parts from diagonal_chunk_attn into the compined matrix of attentions
     # - copying the main diagonal and the upper triangle
     diagonal_attn[:, :-1, :, w:] = diagonal_chunk_attn[:, :, :w, :w + 1]

@@ -1,4 +1,5 @@
 from mimetypes import init
+from os import devnull
 from subprocess import call
 from nltk.parse.corenlp import CoreNLPDependencyParser
 import pickle
@@ -60,8 +61,8 @@ class sentence_processor():
         main_rel = ["nsubj", "obj", "iobj"]
         minor_rel = ["csubj", "ccomp", "xcomp", "nmod", "appos", "nummod","amod"]
         result, = self.dependency_tree_build()
-        for head, rel, dep in result.triples():
-            print(head,rel,dep)
+        # for head, rel, dep in result.triples():
+        #     print(head,rel,dep)
         
         tokens =[]
         word_type = []
@@ -101,8 +102,8 @@ class sentence_processor():
             if(row[3] in minor_rel):
                 adjacency_matrix[i,int(row[2])-1] = 0.5
                 adjacency_matrix[int(row[2])-1,i] = 0.5
-        print(adjacency_matrix)
-        print(kkk)
+        # print(adjacency_matrix)
+        # print(kkk)
         # padding 和 truncate
         padding_length = 1024-adjacency_matrix.shape[0]
         if(padding_length>0):
@@ -120,7 +121,6 @@ class sentence_processor():
 
         #返回sci的稀疏矩阵，减小数据存储的大小和计算的难度
         return sparse.csr_matrix(adjacency_matrix)
-
 
 def load_data(file_path):
     with open(file_path,'rb') as fin:
@@ -147,7 +147,7 @@ def multi_process(examples,index):
             # print(previous_matrix.shape)
             temp = np.column_stack((zero_fill.T,temp))
             previous_matrix = np.row_stack((previous_matrix,temp))
-            print(previous_matrix.shape)
+            # print(previous_matrix.shape)
         else:
             previous_matrix = temp
             # print(previous_matrix.shape)
@@ -164,8 +164,8 @@ def multi_process(examples,index):
     # output[index] = temp
     return output
 
-def build_async_main(data_type):
-    data = load_data("SeConD_data/{}_tfidf_seq2seq_v3.pickle".format(data_type))
+def build_async_main(data_type,data_dir):
+    data = load_data("{}/{}_tfidf.pickle".format(data_dir,data_type))
     # data = data[2120:]
     #callback函数的全局记录变量
     output = []
@@ -182,7 +182,7 @@ def build_async_main(data_type):
         print(str(localtime)+" output length = {}".format(len(output)))
         # print(kkk)
         if(len(output)%5000 == 0 or len(output) == len(data)):
-            with open("SeConD_data/dependency_tree/{}_dependency_tree_part_".format(data_type)+str(len(output))+".pickle",'wb') as f1:
+            with open("{}/dependency_tree/{}_dependency_tree_part_".format(data_dir,data_type)+str(len(output))+".pickle",'wb') as f1:
                 pickle.dump(output,f1)
                 print("file saved with lenth = {}".format(len(output)))
         qbar.update(len(result))
@@ -224,7 +224,7 @@ def build_async_main(data_type):
     pool.close()
     pool.join()
     
-    with open("SeConD_data/dependency_tree/{}_dependency_tree_part_".format(data_type)+str(len(output))+".pickle",'wb') as f1:
+    with open("{}/dependency_tree/{}_dependency_tree_part_".format(data_dir,data_type)+str(len(output))+".pickle",'wb') as f1:
         pickle.dump(output,f1)
         print("file saved with lenth = {}".format(len(output)))
     
@@ -289,6 +289,16 @@ def build_full_metrix(data_type):
         pickle.dump(output_data,f1)
         print(len(output_data))
 
+def merge_dependency_tree(pickle_path,dependency_tree_path,out_path):
+    data_original = load_data(pickle_path)
+    data_dependency_tree = load_data(dependency_tree_path)
+    assert len(data_original) == len(data_dependency_tree), "length different: "+str(len(data_original))+' '+str(len(data_dependency_tree))
+    for i, dependency in tqdm(enumerate(data_dependency_tree)):
+        index = int(list(dependency.keys())[0])
+        data_original[index].append(dependency[index])
+    with open(out_path,'wb') as f1:
+        pickle.dump(data_original,f1)
+        print("Save data with TF_IDF and dependency tree")
         # sp = sentence_processor(data[index][1])
         # save_data.append(sp.adjacency_matrix_build())
     # with open("SeConD_data/{}_dependency_tree_missing.pickle",format(data_type),'wb') as f1:
@@ -353,20 +363,54 @@ class DSTC_processor():
             print("dataset size is: {}".format(len(output)))
             print("build finished")
     
-
+def replace_long_path(path_in,path_out):
+    data = load_data(path_in)
+    output = []
+    for item in tqdm(data):
+        temp = []
+        temp.append(item[0])
+        if(list(filter(lambda x: len(x)>600,item[1].split(' ')))):
+            split_words = item[1].split(' ')
+            replaced_str = ' '.join([x if len(x)<200 else "[long_path]" for x in split_words ])
+            # print(item[1])
+            # print("*"*30)
+            # print(replaced_str)
+            # print(kkk)
+            temp.append(replaced_str)
+            temp.append(item[2])
+        else:
+            temp.append(item[1])
+            temp.append(item[2])
+        output.append(temp)
+        
+    with open(path_out,'wb') as f1:
+        pickle.dump(output,f1)
 
 if __name__ == "__main__":
-    # test = re.findall(r'Ġ*[^\|\?\~\`\!\@\#\$\%\^\&\*\(\)\_\-\+\=\{\}\[\]\'\"\:\;\,\<\.\>\\\/0-9a-zA-Z]{1,}$',"Ġhello")
+    # data = load_data("/hci/junchen_data/Virus_Helper/SeConD_data/train_tfidf_v4.pickle")
+    # del data[27999]
+    # with open("/hci/junchen_data/Virus_Helper/SeConD_data/train_tfidf_v5.pickle",'wb') as f1:
+    #     pickle.dump(data,f1)
+    # for m in missing:
+    #     print(m)
+    #     sp = sentence_processor(data[m][1])
+    #     temp = sp.adjacency_matrix_build()
+    # replace_long_path("/hci/junchen_data/Virus_Helper/SeConD_data/train_tfidf_seq2seq_v3.pickle","/hci/junchen_data/Virus_Helper/SeConD_data/train_tfidf_v3.pickle")
+    merge_dependency_tree("SeConD_data/test_tfidf.pickle","SeConD_data/dependency_tree/test_dependency_tree_part_9679.pickle","SeConD_data/test_tfidf_dt.pickle")
+    # test = re.f
+    # indall(r'Ġ*[^\|\?\~\`\!\@\#\$\%\^\&\*\(\)\_\-\+\=\{\}\[\]\'\"\:\;\,\<\.\>\\\/0-9a-zA-Z]{1,}$',"Ġhello")
     # print(test)
     # build_full_metrix("dev")
-    # build_async_main("train")
+    # build_async_main("test",'SeConD_data')
     # test = np.array([[0,0,1],[2,0,0],[0,30,0]])
     # test = sparse.csr_matrix(test)
     # test = convert_matrix_to_sparse(test)
     # persona_data = persona_processor("Persona_data/personachat_self_original.json")
     # persona_data.build_pickle('train')
-    DSTC = DSTC_processor('DSTC7_AVSD/DSTC7-AVSD_test.json')
-    DSTC.build_pickle('test')
+    # DSTC = DSTC_processor('DSTC7_AVSD/DSTC7-AVSD_test.json')
+    # DSTC.build_pickle('test')
+    # data = load_data('/hci/junchen_data/Virus_Helper/SeConD_data/train_tfidf_seq2seq_v3.pickle')
+    # print(len(data[0]))
 
     # sp = sentence_processor("The quick brown fox jumps over the lazy dog.")
     # sp.adjacency_matrix_build()

@@ -1,3 +1,4 @@
+from ast import Str
 import os
 import argparse
 import random
@@ -23,7 +24,7 @@ from nltk.translate.bleu_score import sentence_bleu
 from longformer import LongformerEncoderDecoderForConditionalGeneration, LongformerEncoderDecoderConfig
 from longformer.sliding_chunks import pad_to_window_size
 
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
 
 def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
     """From fairseq"""
@@ -81,7 +82,7 @@ class Seq2SeqDataset(Dataset):
         tf_idf_mask = []
 
         for score in entry[3]:
-            if score > 0.8: #TODO: TD, change the number to 0-1, 0.2=use top 80% words
+            if score > 0.2: #TODO: TD, change the number to 0-1, 0.2=use top 80% words
                 tf_idf_mask.append(round(score,3))
             else:
                 tf_idf_mask.append(0.0)
@@ -106,7 +107,18 @@ class Seq2SeqDataset(Dataset):
 
         if self.tokenizer.bos_token_id is None:  # pegasus
             output_ids = [self.tokenizer.pad_token_id] + output_ids
-        return torch.tensor(input_ids), torch.tensor(output_ids), torch.tensor(tf_idf_mask)
+        return torch.tensor(input_ids), torch.tensor(output_ids), torch.tensor(tf_idf_mask), self.convert_sparse_matrix_to_sparse_tensor(entry[4])
+    
+    def convert_sparse_matrix_to_sparse_tensor(self,X):
+        coo = X.tocoo()
+        values = coo.data
+        indices = np.vstack((coo.row, coo.col))
+
+        i = torch.LongTensor(indices)
+        v = torch.FloatTensor(values)
+        full_mat = torch.sparse.FloatTensor(i, v, torch.Size(coo.shape)).to_dense()
+        
+        return full_mat
 
     @staticmethod
     def collate_fn(batch):
@@ -118,15 +130,16 @@ class Seq2SeqDataset(Dataset):
         else:
             assert False
 
-        input_ids, output_ids, tf_idf = zip(*batch)
+        input_ids, output_ids, tf_idf, dt = zip(*batch)
     
         input_ids = torch.nn.utils.rnn.pad_sequence(list(input_ids), batch_first=True, padding_value=pad_token_id)
        
         output_ids = torch.nn.utils.rnn.pad_sequence(list(output_ids), batch_first=True, padding_value=pad_token_id)
         tf_idf = torch.nn.utils.rnn.pad_sequence(list(tf_idf), batch_first=True, padding_value=pad_token_id)
+        dt = torch.nn.utils.rnn.pad_sequence(list(dt), batch_first=True, padding_value=pad_token_id)
         # print(input_ids.shape)
         
-        return input_ids, output_ids, tf_idf
+        return input_ids, output_ids, tf_idf, dt
 
 
 class Seq2Seq(pl.LightningModule):
@@ -169,7 +182,7 @@ class Seq2Seq(pl.LightningModule):
                 input_ids, attention_mask, half_padding_mod, self.tokenizer.pad_token_id)
         return input_ids, attention_mask
 
-    def forward(self, input_ids, output_ids, tf_idf):
+    def forward(self, input_ids, output_ids, tf_idf, dt):
         input_ids, attention_mask = self._prepare_input(input_ids)
         if(self.args.use_tfidf):
             attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
@@ -177,7 +190,7 @@ class Seq2Seq(pl.LightningModule):
             tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
             # print(tf_idf.shape)
             mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
-        
+            
         decoder_input_ids = output_ids[:, :-1]
         decoder_attention_mask = (decoder_input_ids != self.tokenizer.pad_token_id)
         labels = output_ids[:, 1:].clone()
@@ -187,6 +200,7 @@ class Seq2Seq(pl.LightningModule):
                 attention_mask=mix_tensor if self.args.use_tfidf else attention_mask, #TODO: mix_tensor=using TFIDF attention_mask = not using
                 decoder_input_ids=decoder_input_ids,
                 decoder_attention_mask=decoder_attention_mask,
+                dt=dt,
                 use_cache=False)
         lm_logits = outputs[0]
         # print(outputs)
@@ -221,15 +235,14 @@ class Seq2Seq(pl.LightningModule):
         vloss = outputs[0]
         # print(outputs)
 
-        input_ids, output_ids,tf_idf = batch
+        input_ids, output_ids,tf_idf,dt = batch
         input_ids, attention_mask = self._prepare_input(input_ids)
         
         if(self.args.use_tfidf):
             attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
             tf_idf = torch.reshape(tf_idf,(tf_idf.shape[0],1,tf_idf.shape[1]))
             mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
-
-        generated_ids = self.model.generate(input_ids=input_ids, attention_mask=mix_tensor if self.args.use_tfidf else attention_mask,#TODO: mix_tensor=using TFIDF attention_mask = not using
+        generated_ids = self.model.generate(input_ids=input_ids, dt=dt,attention_mask=mix_tensor if self.args.use_tfidf else attention_mask,#TODO: mix_tensor=using TFIDF attention_mask = not using
                                             use_cache=True, max_length=self.args.max_output_len,
                                             num_beams=1)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
@@ -282,7 +295,6 @@ class Seq2Seq(pl.LightningModule):
         return {'avg_val_loss': logs['vloss'], 'log': logs, 'progress_bar': logs}
 
     def test_step(self, batch, batch_nb):
-        
         if(self.args.interact):
             history = ""
             while True:
@@ -313,7 +325,7 @@ class Seq2Seq(pl.LightningModule):
 
         outputs = self.forward(*batch)
         vloss = outputs[0]
-        input_ids, output_ids,tf_idf = batch
+        input_ids, output_ids,tf_idf,dt = batch
         input_ids, attention_mask = self._prepare_input(input_ids)
         if(self.args.use_tfidf):
             attention_mask = torch.reshape(attention_mask,(attention_mask.shape[0],1,attention_mask.shape[1]))
@@ -321,7 +333,7 @@ class Seq2Seq(pl.LightningModule):
             mix_tensor = torch.cat((attention_mask,tf_idf),dim=1)
 
         generated_ids = self.model.generate(input_ids=input_ids, attention_mask=mix_tensor if self.args.use_tfidf else attention_mask, #TODO: TFIDF
-                                            use_cache=True, max_length=self.args.max_output_len,
+                                            use_cache=True, max_length=self.args.max_output_len,dt=dt,
                                             num_beams=1)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
         gold_str = self.tokenizer.batch_decode(output_ids.tolist(), skip_special_tokens=True)
@@ -330,8 +342,8 @@ class Seq2Seq(pl.LightningModule):
 
         output_strs = []
         for ref, pred in zip(gold_str, generated_str):
-            # print(len(ref))
-            output_strs.append([ref,pred])
+            
+            output_strs.append(str(ref)+"\t"+str(pred))
             score = scorer.score(ref, pred)
             rouge1 += score['rouge1'].fmeasure
             rouge2 += score['rouge2'].fmeasure
@@ -341,8 +353,10 @@ class Seq2Seq(pl.LightningModule):
         rouge2 /= len(generated_str)
         rougel /= len(generated_str)
         rougelsum /= len(generated_str)
-        with open("SeConD_data/generated_str.pickle",'wb') as f2:
-            pickle.dump(output_strs,f2)
+        print(len(output_strs))
+        # print(kkk)
+        with open(self.args.save_dir+"/generated_str.txt",'a',encoding='utf-8') as f2:
+            f2.write("\n".join(output_strs)+'\n')
 
         return {'vloss': vloss,
                 'rouge1': vloss.new_zeros(1) + rouge1,
